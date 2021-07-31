@@ -147,7 +147,13 @@ struct VectorDistanceTanimoto {
     }
 };
 
+struct VectorDistanceKendallTau {
+    size_t d;
 
+    float operator () (const float *x, const float *y) const {
+        return kendall_tau_distance(x,y,d)
+    }
+};
 
 namespace {
 
@@ -290,6 +296,12 @@ void pairwise_extra_distances (
                                           dis, ldq, ldb, ldd);
         break;
     }
+    case METRIC_KendallTau: {
+        VectorDistanceKendallTau vd({(size_t) d});
+        pairwise_extra_distances_template(vd, nq, xq, nb, xb,
+                                          dis, ldq, ldb, ldd);
+        break;
+    }
     default:
         FAISS_THROW_MSG ("metric type not implemented");
     }
@@ -331,6 +343,11 @@ void knn_extra_metrics (
     }
     case METRIC_Tanimoto: {
         VectorDistanceTanimoto vd({(size_t) d});
+        knn_extra_metrics_template(vd, x, y, nx, ny, res, bitset);
+        break;
+    }
+    case METRIC_KendallTau: {
+        VectorDistanceKendallTau vd({(size_t) d});
         knn_extra_metrics_template(vd, x, y, nx, ny, res, bitset);
         break;
     }
