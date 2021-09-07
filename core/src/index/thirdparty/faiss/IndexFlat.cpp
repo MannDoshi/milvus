@@ -57,6 +57,10 @@ void IndexFlat::search (idx_t n, const float *x, idx_t k,
         float_maxheap_array_t res = {
                 size_t(n), size_t(k), labels, distances};
         knn_jaccard(x, xb.data(), d, n, ntotal, &res, bitset);
+    } else if (metric_type == METRIC_KendallTau) {
+        float_maxheap_array_t res = {
+                size_t(n), size_t(k), labels, distances};
+        knn_kendall_tau(x, xb.data(), d, n, ntotal, &res, bitset); 
     } else {
         float_maxheap_array_t res = {
             size_t(n), size_t(k), labels, distances};
