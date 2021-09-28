@@ -171,6 +171,8 @@ parse_ann_test_name(const std::string& ann_test_name, size_t& dim, faiss::Metric
         metric_type = faiss::METRIC_INNER_PRODUCT;
     } else if (metric_str == "euclidean") {
         metric_type = faiss::METRIC_L2;
+    } else if (metric_str == "kendall"){
+        metric_type = faiss::METRIC_KendallTau; 
     } else {
         return false;
     }
@@ -538,6 +540,7 @@ TEST(FAISSTEST, BENCHMARK) {
 
     test_ann_hdf5("sift-128-euclidean", "IDMap", "Flat", MODE_CPU, SIFT_INSERT_LOOPS, param_nprobes, SEARCH_LOOPS);
     test_ann_hdf5("sift-128-euclidean", "IDMap", "Flat", MODE_GPU, SIFT_INSERT_LOOPS, param_nprobes, SEARCH_LOOPS);
+    test_ann_hdf5("sift-128-kendall", "IDMap", "Flat", MODE_CPU, SIFT_INSERT_LOOPS, param_nprobes, SEARCH_LOOPS);
 
     test_ann_hdf5("sift-128-euclidean", "IVF16384", "Flat", MODE_CPU, SIFT_INSERT_LOOPS, param_nprobes, SEARCH_LOOPS);
     test_ann_hdf5("sift-128-euclidean", "IVF16384", "Flat", MODE_GPU, SIFT_INSERT_LOOPS, param_nprobes, SEARCH_LOOPS);
