@@ -81,6 +81,10 @@ void IndexFlat::assign(idx_t n, const float * x, idx_t * labels, float* distance
             elkan_L2_sse(x, xb.data(), d, n, ntotal, labels, dis_inner);
             break;
         }
+        case METRIC_KendallTau: {
+            elkan_kendall_tau_sse(x, xb.data(), d, n, ntotal, labels, dis_inner);
+            break;
+        }
         default: {
             // binary metrics
             // There may be something wrong, but maintain the original logic now.
@@ -105,6 +109,9 @@ void IndexFlat::range_search (idx_t n, const float *x, float radius,
     case METRIC_L2:
         range_search_L2sqr (x, xb.data(), d, n, ntotal, radius, result);
         break;
+    case METRIC_KendallTau:
+        range_search_kendall_tau (x, xb.data(), d, n, ntotal, radius, result);
+        break;
     default:
         FAISS_THROW_MSG("metric type not supported");
     }
@@ -126,6 +133,11 @@ void IndexFlat::compute_distance_subset (
             break;
         case METRIC_L2:
             fvec_L2sqr_by_idx (
+                 distances,
+                 x, xb.data(), labels, d, n, k);
+            break;
+        case METRIC_KendallTau:
+            fvec_kendall_tau_by_idx (
                  distances,
                  x, xb.data(), labels, d, n, k);
             break;

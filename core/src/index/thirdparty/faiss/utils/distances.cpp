@@ -399,7 +399,7 @@ static void knn_kendall_tau_sse (const float * x,
                     const float *y_j = y + j * d;
                     const float *x_i = x + x_from * d;
                     for (size_t i = 0; i < size; i++) {
-                        float disij = fvec_inner_product (x_i, y_j, d);
+                        float disij = kendall_tau_distance (x_i, y_j, d);
                         float * val_ = value + thread_no * thread_heap_size + i * k;
                         int64_t * ids_ = labels + thread_no * thread_heap_size + i * k;
                         if (disij > val_[0]) {
@@ -458,7 +458,7 @@ static void knn_kendall_tau_sse (const float * x,
 
             for (size_t j = 0; j < ny; j++) {
                 if (!bitset || !bitset->test(j)) {
-                    float disij = fvec_inner_product (x_i, y_j, d);
+                    float disij = kendall_tau_distance (x_i, y_j, d);
                     if (disij > val_[0]) {
                         minheap_swap_top (k, val_, ids_, disij, j);
                     }
@@ -691,7 +691,7 @@ static void knn_kendall_tau_blas (const float * x,
                               const float * y,
                               size_t d, size_t nx, size_t ny,
                               float_maxheap_array_t * res,
-                              const DistanceCorrection &corr,
+                            //   const DistanceCorrection &corr,
                               ConcurrentBitsetPtr bitset = nullptr)
 {
     res->heapify ();
@@ -704,13 +704,13 @@ static void knn_kendall_tau_blas (const float * x,
     /* block sizes */
     const size_t bs_x = 4096, bs_y = 1024;
     // const size_t bs_x = 16, bs_y = 16;
-    float *ip_block = new float[bs_x * bs_y];
-    float *x_norms = new float[nx];
-    float *y_norms = new float[ny];
-    ScopeDeleter<float> del1(ip_block), del3(x_norms), del2(y_norms);
+    // float *ip_block = new float[bs_x * bs_y];
+    // float *x_norms = new float[nx];
+    // float *y_norms = new float[ny];
+    // ScopeDeleter<float> del1(ip_block), del3(x_norms), del2(y_norms);
 
-    fvec_norms_L2sqr (x_norms, x, d, nx);
-    fvec_norms_L2sqr (y_norms, y, d, ny);
+    // fvec_norms_L2sqr (x_norms, x, d, nx);
+    // fvec_norms_L2sqr (y_norms, y, d, ny);
 
 
     for (size_t i0 = 0; i0 < nx; i0 += bs_x) {
@@ -719,34 +719,30 @@ static void knn_kendall_tau_blas (const float * x,
 
         for (size_t j0 = 0; j0 < ny; j0 += bs_y) {
             size_t j1 = j0 + bs_y;
-            if (j1 > ny) j1 = ny;
-            /* compute the actual dot products */
-            {
-                float one = 1, zero = 0;
-                FINTEGER nyi = j1 - j0, nxi = i1 - i0, di = d;
-                sgemm_ ("Transpose", "Not transpose", &nyi, &nxi, &di, &one,
-                        y + j0 * d, &di,
-                        x + i0 * d, &di, &zero,
-                        ip_block, &nyi);
-            }
+            // if (j1 > ny) j1 = ny;
+            // /* compute the actual dot products */
+            // {
+            //     float one = 1, zero = 0;
+            //     FINTEGER nyi = j1 - j0, nxi = i1 - i0, di = d;
+            //     sgemm_ ("Transpose", "Not transpose", &nyi, &nxi, &di, &one,
+            //             y + j0 * d, &di,
+            //             x + i0 * d, &di, &zero,
+            //             ip_block, &nyi);
+            // }
 
             /* collect minima */
 #pragma omp parallel for
             for (size_t i = i0; i < i1; i++) {
                 float * __restrict simi = res->get_val(i);
                 int64_t * __restrict idxi = res->get_ids (i);
-                const float *ip_line = ip_block + (i - i0) * (j1 - j0);
+                // const float *ip_line = ip_block + (i - i0) * (j1 - j0);
 
                 for (size_t j = j0; j < j1; j++) {
                     if(!bitset || !bitset->test(j)){
-                        float ip = *ip_line;
-                        float dis = 1.0 - ip / (x_norms[i] + y_norms[j] - ip);
-
-                        // negative values can occur for identical vectors
-                        // due to roundoff errors
-                        if (dis < 0) dis = 0;
-
-                        dis = corr (dis, i, j);
+                        // float ip = *ip_line;
+                        // float dis = 1.0 - ip / (x_norms[i] + y_norms[j] - ip);
+                        float dis = kendall_tau_distance (x[i],y[j],d)
+                        // dis = corr (dis, i, j);
 
                         if (dis < simi[0]) {
                             maxheap_swap_top (k, simi, idxi, dis, j);
@@ -831,8 +827,8 @@ void knn_kendall_tau (const float * x,
     if (nx < distance_compute_blas_threshold) {
         knn_kendall_tau_sse (x, y, d, nx, ny, res, bitset);
     } else {
-        NopDistanceCorrection nop;
-        knn_kendall_tau_blas (x, y, d, nx, ny, res, nop, bitset);
+        // NopDistanceCorrection nop;
+        knn_kendall_tau_blas (x, y, d, nx, ny, res, bitset);
     }
 }
 
@@ -904,6 +900,25 @@ void fvec_L2sqr_by_idx (float * __restrict dis,
     }
 }
 
+void fvec_kendall_tau_by_idx (float * __restrict dis,
+                        const float * x,
+                        const float * y,
+                        const int64_t * __restrict ids, /* ids of y vecs */
+                        size_t d, size_t nx, size_t ny)
+{
+#pragma omp parallel for
+    for (size_t j = 0; j < nx; j++) {
+        const int64_t * __restrict idsj = ids + j * ny;
+        const float * xj = x + j * d;
+        float * __restrict disj = dis + j * ny;
+        for (size_t i = 0; i < ny; i++) {
+            if (idsj[i] < 0)
+                continue;
+            disj[i] = kendall_tau_distance (xj, y + d * idsj[i], d);
+        }
+    }
+}
+
 void pairwise_indexed_L2sqr (
         size_t d, size_t n,
         const float * x, const int64_t *ix,
@@ -932,6 +947,19 @@ void pairwise_indexed_inner_product (
     }
 }
 
+void pairwise_indexed_kendall_tau (
+        size_t d, size_t n,
+        const float * x, const int64_t *ix,
+        const float * y, const int64_t *iy,
+        float *dis)
+{
+#pragma omp parallel for
+    for (size_t j = 0; j < n; j++) {
+        if (ix[j] >= 0 && iy[j] >= 0) {
+            dis[j] = kendall_tau_distance (x + d * ix[j], y + d * iy[j], d);
+        }
+    }
+}
 
 /* Find the nearest neighbors for nx queries in a set of ny vectors
    indexed by ids. May be useful for re-ranking a pre-selected vector list */
@@ -992,7 +1020,32 @@ void knn_L2sqr_by_idx (const float * x,
 
 }
 
+void knn_kendall_tau_by_idx (const float * x,
+                       const float * y,
+                       const int64_t * __restrict ids,
+                       size_t d, size_t nx, size_t ny,
+                       float_maxheap_array_t * res)
+{
+    size_t k = res->k;
 
+#pragma omp parallel for
+    for (size_t i = 0; i < nx; i++) {
+        const float * x_ = x + i * d;
+        const int64_t * __restrict idsi = ids + i * ny;
+        float * __restrict simi = res->get_val(i);
+        int64_t * __restrict idxi = res->get_ids (i);
+        maxheap_heapify (res->k, simi, idxi);
+        for (size_t j = 0; j < ny; j++) {
+            float disij = kendall_tau_distance (x_, y + d * idsi[j], d);
+
+            if (disij < simi[0]) {
+                maxheap_swap_top (k, simi, idxi, disij, idsi[j]);
+            }
+        }
+        maxheap_reorder (res->k, simi, idxi);
+    }
+
+}
 
 
 
@@ -1161,6 +1214,20 @@ void range_search_inner_product (
     }
 }
 
+void range_search_kendall_tau (
+        const float * x,
+        const float * y,
+        size_t d, size_t nx, size_t ny,
+        float radius,
+        RangeSearchResult *res)
+{
+
+    if (nx < distance_compute_blas_threshold) {
+        range_search_sse<false> (x, y, d, nx, ny, radius, res);
+    } else {
+        range_search_blas<false> (x, y, d, nx, ny, radius, res);
+    }
+}
 
 void pairwise_L2sqr (int64_t d,
                      int64_t nq, const float *xq,
@@ -1279,5 +1346,76 @@ void elkan_L2_sse (
     free(data);
 }
 
+void elkan_kendall_tau_sse (
+        const float * x,
+        const float * y,
+        size_t d, size_t nx, size_t ny,
+        int64_t *ids, float *val) {
+
+    if (nx == 0 || ny == 0) {
+        return;
+    }
+
+    const size_t bs_y = 1024;
+    float *data = (float *) malloc((bs_y * (bs_y - 1) / 2) * sizeof (float));
+
+    for (size_t j0 = 0; j0 < ny; j0 += bs_y) {
+        BuilderSuspend::check_wait();
+
+        size_t j1 = j0 + bs_y;
+        if (j1 > ny) j1 = ny;
+
+        auto Y = [&](size_t i, size_t j) -> float& {
+            assert(i != j);
+            i -= j0, j -= j0;
+            return (i > j) ? data[j + i * (i - 1) / 2] : data[i + j * (j - 1) / 2];
+        };
+
+#pragma omp parallel
+        {
+            int nt = omp_get_num_threads();
+            int rank = omp_get_thread_num();
+            for (size_t i = j0 + 1 + rank; i < j1; i += nt) {
+                const float *y_i = y + i * d;
+                for (size_t j = j0; j < i; j++) {
+                    const float *y_j = y + j * d;
+                    Y(i, j) = kendall_tau_distance(y_i, y_j, d);
+                }
+            }
+        }
+
+#pragma omp parallel for
+        for (size_t i = 0; i < nx; i++) {
+            const float *x_i = x + i * d;
+
+            int64_t ids_i = j0;
+            float val_i = kendall_tau_distance(x_i, y + j0 * d, d);
+            float val_i_time_4 = val_i * 4;
+            for (size_t j = j0 + 1; j < j1; j++) {
+                if (val_i_time_4 <= Y(ids_i, j)) {
+                    continue;
+                }
+                const float *y_j = y + j * d;
+                float disij = kendall_tau_distance(x_i, y_j, d / 2);
+                if (disij >= val_i) {
+                    continue;
+                }
+                disij += kendall_tau_distance(x_i + d / 2, y_j + d / 2, d - d / 2);
+                if (disij < val_i) {
+                    ids_i = j;
+                    val_i = disij;
+                    val_i_time_4 = val_i * 4;
+                }
+            }
+
+            if (j0 == 0 || val[i] > val_i) {
+                val[i] = val_i;
+                ids[i] = ids_i;
+            }
+        }
+    }
+
+    free(data);
+}
 
 } // namespace faiss
